@@ -6,6 +6,9 @@ import fasttext
 from gensim.models import LdaMulticore
 from gensim.corpora.dictionary import Dictionary
 import nmslib
+import time
+import hashlib
+import os
 
 
 def aggregate_adopted_vocab(model_lda_gensim: LdaMulticore, model_fast_text: fasttext.FastText._FastText) -> set:
@@ -145,3 +148,62 @@ def sentence2vector(sentence, model_sentence_piece: spm.SentencePieceProcessor, 
         vector[i] = dict_token2vector[token]
 
     return vector.mean(axis=1)
+
+
+class SentenceEmbedding:
+    def __init__(self, model_lda_gensim: LdaMulticore, model_fast_text: fasttext.FastText._FastText,
+                 model_sentence_piece: spm.SentencePieceProcessor,
+                 dictionary_lda: Dictionary, path_to_save=""):
+        self.model_LDA = model_lda_gensim
+        self.model_fast = model_fast_text
+        self.model_sp = model_sentence_piece
+        self.dictionary_LDA = dictionary_lda
+        self.vocab = aggregate_adopted_vocab(model_lda_gensim=model_lda_gensim, model_fast_text=model_fast_text)
+        self.dict_token2vector = make_dict_token2vector(tokens=self.vocab, model_lda_gensim=model_lda_gensim,
+                                                        model_fast_text=model_fast_text, dictionary_lda=dictionary_lda)
+        self.dict_is_valid = {token: True for token in self.vocab}
+        self.vectors_collected = []
+        self.docs_collected = []
+        self.index = nmslib.init(method="hnsw", space="cosinesimil")  # 樹形図探索アルゴリズム
+        self.path_to_save ="placeholder"
+        self.set_save_directory(path_to_save)
+        joblib.dump(self.vocab, f"{self.path_to_save}SCDV_vocab.joblib")
+        joblib.dump(self.dict_token2vector, f"{self.path_to_save}SCDV_dict_token2vector.joblib")
+        joblib.dump(self.dict_is_valid, f"{self.path_to_save}SCDV_dict_is_valid.joblib")
+
+    def set_save_directory(self, path_to_save):
+        if path_to_save == "":
+            path_to_save = f"scdv_{hashlib.sha1(time.ctime().encode().hexdigest())}/"
+        if not path_to_save.endswith("/"):
+            path_to_save += "/"
+        if not os.path.exists(path_to_save):
+            os.mkdir(path_to_save)
+        self.path_to_save = path_to_save.replace("\\", "/")
+
+
+    def sentence2vector(self, sentence: str) -> np.array:
+        return sentence2vector(sentence=sentence, model_sentence_piece=self.model_sp,
+                               dict_token2vector=self.dict_token2vector, dict_is_valid=self.dict_is_valid)
+
+    def vectorize_collected_documents(self, documents: list):
+        """
+        文書群を対応するベクトルに変換して、格納する
+        :param documents: list of str
+        :return:
+        """
+        self.docs_collected = documents
+        self.vectors_collected = [self.sentence2vector(sentence=sentence) for sentence in
+                                  tqdm(documents, desc="embed @ scdv")]
+        self.index.addDataPointBatch(self.vectors_collected)
+        self.index.createIndex({"post": 2})  # この引数の意味がどこかに書いてあったらお知らせを
+
+    def fetch_similar_doc_and_info(self, target_sentence:str, topn=10):
+        """
+        target_sentenceに似た文を格納済みの中から探して、文書, id, コサイン距離を返す
+        :param target_sentence: str, query
+        :param topn: int, top n docs
+        :return:
+        """
+        target_vector = self.sentence2vector(sentence=target_sentence)
+        ids, distances = self.index.knnQuery(target_vector, k=topn)
+        return [self.docs_collected[_id] for _id in ids], ids, distances
