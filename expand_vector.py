@@ -145,7 +145,8 @@ def sentence2vector(sentence, model_sentence_piece: spm.SentencePieceProcessor, 
     tokens_raw = model_sentence_piece.EncodeAsPieces(sentence)
     tokens = leave_valid(tokens=tokens_raw, dict_is_valid=dict_is_valid)
     vector_size = len(list(dict_token2vector.values())[0])
-    vector = np.empty((vector_size, max(len(tokens), 1)))
+    # 意味を獲得できたtokenが１つもないときは、原点に集めるため、zerosで初期化
+    vector = np.zeros((vector_size, max(len(tokens), 1)), dtype=np.float64)
     for i, token in enumerate(tokens):
         vector[:, i] = dict_token2vector[token]
 
@@ -214,6 +215,11 @@ class SentenceEmbedding:
         :param topn: int, top n docs
         :return:
         """
-        target_vector = self.sentence2vector(sentence=target_sentence)
-        ids, distances = self.index.knnQuery(target_vector, k=topn)
-        return [self.docs_collected[_id] for _id in ids], ids, distances
+        target_vector, flag_exists_valid_token = self.sentence2vector(sentence=target_sentence)
+        if flag_exists_valid_token:
+            # queryの意味が獲得できるとき
+            ids, distances = self.index.knnQuery(target_vector, k=topn)
+            return flag_exists_valid_token, [self.docs_collected[_id] for _id in ids], ids, distances
+        else:
+            # queryの意味が獲得できないとき
+            return flag_exists_valid_token, [], [], []
