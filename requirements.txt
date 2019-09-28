@@ -1,3 +1,6 @@
+joblib
+tqdm
+nmslib
 sentencepiece
 gensim
 fasttext

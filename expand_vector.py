@@ -130,24 +130,35 @@ def wrapper_make_dict_token2vector(model_lda_gensim: LdaMulticore, model_fast_te
 
 
 def sentence2vector(sentence, model_sentence_piece: spm.SentencePieceProcessor, dict_token2vector: dict,
-                    dict_is_valid: dict) -> np.array
+                    dict_is_valid: dict) -> [np.array, bool]:
     """
     文をベクトルに変換
+    戻り値の第2引数は、意味を獲得できたベクトルが１つもないときで分岐
+    - True: 意味を獲得できたtokenがあった
+    - False: なかった
     :param sentence: str, 対象の文 
     :param model_sentence_piece: spm.SentencePieceProcessor, sentencepieceモデル
     :param dict_token2vector: dict, token から拡張単語分散表現を得る辞書
     :param dict_is_valid: dict, token からモデルに含まれるかTrueで返す
     :return: 
     """
-    tokens = model_sentence_piece.EncodeAsPieces(sentence)
-    tokens = leave_valid(tokens=tokens, dict_is_valid=dict_is_valid)
-    assert len(tokens) != 0, "no valid token, change phrase or word"
-    vector_size = len(dict_token2vector[tokens[0]])
-    vector = np.empty((vector_size, len(tokens)))
+    tokens_raw = model_sentence_piece.EncodeAsPieces(sentence)
+    tokens = leave_valid(tokens=tokens_raw, dict_is_valid=dict_is_valid)
+    vector_size = len(list(dict_token2vector.values())[0])
+    vector = np.empty((vector_size, max(len(tokens), 1)))
     for i, token in enumerate(tokens):
-        vector[i] = dict_token2vector[token]
+        vector[:, i] = dict_token2vector[token]
 
-    return vector.mean(axis=1)
+    # いちいちifで分岐しなくてもvector自体は正しく返せるけど、エラーメッセージ表示用に分ける
+    # ## exceptionを発行して止めるかどうかが悩ましい
+    if len(tokens) != 0:
+        # valid token exists
+        return [vector.mean(axis=1), len(tokens) != 0]
+    else:
+        # no valid token
+        # assert len(tokens) != 0, "no valid token, change phrase or word"
+        print(f" this sentence has no valid token, change phrase or word\n{''.join(tokens_raw[:20]).replace('_', '')}")
+        return [vector.mean(axis=1), len(tokens) != 0]
 
 
 class SentenceEmbedding:
@@ -165,7 +176,7 @@ class SentenceEmbedding:
         self.vectors_collected = []
         self.docs_collected = []
         self.index = nmslib.init(method="hnsw", space="cosinesimil")  # 樹形図探索アルゴリズム
-        self.path_to_save ="placeholder"
+        self.path_to_save = "placeholder"
         self.set_save_directory(path_to_save)
         joblib.dump(self.vocab, f"{self.path_to_save}SCDV_vocab.joblib")
         joblib.dump(self.dict_token2vector, f"{self.path_to_save}SCDV_dict_token2vector.joblib")
@@ -173,13 +184,12 @@ class SentenceEmbedding:
 
     def set_save_directory(self, path_to_save):
         if path_to_save == "":
-            path_to_save = f"scdv_{hashlib.sha1(time.ctime().encode().hexdigest())}/"
+            path_to_save = f"scdv_{hashlib.sha1(time.ctime().encode()).hexdigest()}/"
         if not path_to_save.endswith("/"):
             path_to_save += "/"
         if not os.path.exists(path_to_save):
             os.mkdir(path_to_save)
         self.path_to_save = path_to_save.replace("\\", "/")
-
 
     def sentence2vector(self, sentence: str) -> np.array:
         return sentence2vector(sentence=sentence, model_sentence_piece=self.model_sp,
@@ -192,12 +202,12 @@ class SentenceEmbedding:
         :return:
         """
         self.docs_collected = documents
-        self.vectors_collected = [self.sentence2vector(sentence=sentence) for sentence in
+        self.vectors_collected = [self.sentence2vector(sentence=sentence)[0] for sentence in
                                   tqdm(documents, desc="embed @ scdv")]
         self.index.addDataPointBatch(self.vectors_collected)
         self.index.createIndex({"post": 2})  # この引数の意味がどこかに書いてあったらお知らせを
 
-    def fetch_similar_doc_and_info(self, target_sentence:str, topn=10):
+    def fetch_similar_doc_and_info(self, target_sentence: str, topn=10):
         """
         target_sentenceに似た文を格納済みの中から探して、文書, id, コサイン距離を返す
         :param target_sentence: str, query
