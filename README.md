@@ -10,11 +10,11 @@ make "Sparse Composite Document Vectors", use latent dirichlet allocation instea
 - 基本的には[Sparse Composite Documents Vector](https://arxiv.org/pdf/1612.06778.pdf)やら[gaussian LDA](https://www.aclweb.org/anthology/P15-1077)のオマージュ
 
 ### 理論背景(読み飛ばし)
-SCDVの理論と説明は以下を参照
-[本家](https://dheeraj7596.github.io/SDV/)
-[実験記事](https://qiita.com/fufufukakaka/items/a7316273908a7c400868)
+SCDVの理論と説明は以下を参照  
+[本家](https://dheeraj7596.github.io/SDV/)  
+[実験記事](https://qiita.com/fufufukakaka/items/a7316273908a7c400868)  
 
-    単語分散表現の考案によって、単語の意味を示すベクトルが獲得て着るようになった
+    単語分散表現の考案によって、単語の意味を示すベクトルが獲得できるようになった
     しかし、これは単語レベルであり、文書の意味を示すベクトルの獲得は2019年でも混迷の時代である
     2018年にはbidirectional LSTM を2つ使ったbertという文のベクトル化手法が一世を風靡しているが、
     LSTMは長い系列の初めの方は覚えていないという問題がある。
@@ -25,6 +25,11 @@ SCDVの理論と説明は以下を参照
     文書の話題の特徴を加味せずに議論するのが気持ち悪い。
     ここでは、文書の話題を加味しうるLDAを用いて同様のことを実施する（自分で発案した理屈なのである程度怪しい）
     この系譜はgaussian LDAなどにも受け継がれているので、そっちを使っても良いかもしれない
+    gaussian LDAを使わない理由は、納得できないため
+    LDAだと話題ごとの単語の出現確率を多項分布を用いてモデル化しているが、
+    gaussian LDAは単語分散表現の出現確率を連続値を扱う都合で正規分布を用いてモデリングする
+    いきなり正規分布(自然界ではある意味レアな分布)が突然始まると、ちょっと躊躇してしまう
+    
 
 ### usage
 ```python
@@ -35,11 +40,11 @@ import joblib
 
 # load models
 # ## if you do not have enough knowledge, use my repositories.
-# ## usually, i use 'joblib' for saving python data.
-# ## however, any ways are ok if it can load gensim LDA model and corpora.dictionary.Dictionary
 model_sentence = spm.SentencePieceProcessor()
 model_sentence.load("path_to_spm/model_sentence_piece.model")
 model_fast = fasttext.load_model("path_to_fast/model_fast_text.bin")
+# ## usually, i use 'joblib' for saving python data.
+# ## however, any way is ok if it can load gensim LDA model and corpora.dictionary.Dictionary
 model_lda = joblib.load('path_to_lda/model_of_gensim_LDA.joblib')
 dictionary_lda = joblib.load("path_to_lda/dictionary_of_gensim_Dictionary.joblib")
 
